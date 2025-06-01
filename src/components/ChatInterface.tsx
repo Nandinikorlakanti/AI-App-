@@ -1,5 +1,4 @@
-
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -7,6 +6,7 @@ import { Send, Copy, RotateCcw, Save, Loader2 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import MessageBubble from '@/components/MessageBubble';
 import ToolControls from '@/components/ToolControls';
+import { aiService } from '@/services/aiService';
 
 interface ChatInterfaceProps {
   selectedTool: string;
@@ -26,7 +26,26 @@ const ChatInterface = ({ selectedTool, isToolSidebarOpen, isSettingsOpen }: Chat
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const [temperature, setTemperature] = useState(0.7);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Test backend connection on mount
+  useEffect(() => {
+    const testConnection = async () => {
+      const connected = await aiService.testConnection();
+      setIsConnected(connected);
+      if (!connected) {
+        toast({
+          title: "Backend not connected",
+          description: "Make sure your FastAPI backend is running on localhost:8000",
+          variant: "destructive"
+        });
+      }
+    };
+    
+    testConnection();
+  }, []);
 
   const getPlaceholder = () => {
     switch (selectedTool) {
@@ -51,6 +70,15 @@ const ChatInterface = ({ selectedTool, isToolSidebarOpen, isSettingsOpen }: Chat
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
+    if (!isConnected) {
+      toast({
+        title: "No backend connection",
+        description: "Please start your FastAPI backend first",
+        variant: "destructive"
+      });
+      return;
+    }
+
     const userMessage: Message = {
       id: Date.now().toString(),
       type: 'user',
@@ -63,19 +91,51 @@ const ChatInterface = ({ selectedTool, isToolSidebarOpen, isSettingsOpen }: Chat
     setInput('');
     setIsLoading(true);
 
-    // Simulate AI response
-    setTimeout(() => {
+    try {
+      const response = await aiService.generate({
+        prompt: userMessage.content,
+        temperature: temperature
+      });
+
+      if (response.error) {
+        throw new Error(response.error);
+      }
+
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: 'assistant',
-        content: `This is a simulated response from the ${getToolTitle()} tool. In a real implementation, this would connect to your local AI model and process the request: "${userMessage.content}"`,
+        content: response.output || 'No response received',
         timestamp: new Date(),
         tool: selectedTool
       };
       
       setMessages(prev => [...prev, aiMessage]);
+      
+      toast({
+        title: "Response generated",
+        description: "AI response has been logged to chat_log.txt"
+      });
+    } catch (error) {
+      console.error('Error generating response:', error);
+      
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        type: 'assistant',
+        content: `Error: ${error instanceof Error ? error.message : 'Failed to generate response'}`,
+        timestamp: new Date(),
+        tool: selectedTool
+      };
+      
+      setMessages(prev => [...prev, errorMessage]);
+      
+      toast({
+        title: "Generation failed",
+        description: "Check console for details",
+        variant: "destructive"
+      });
+    } finally {
       setIsLoading(false);
-    }, 2000);
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -106,12 +166,16 @@ const ChatInterface = ({ selectedTool, isToolSidebarOpen, isSettingsOpen }: Chat
             <h2 className="text-lg font-semibold text-gray-800">
               {getToolTitle()}
             </h2>
-            <p className="text-sm text-gray-600">
-              Ready to assist with your {selectedTool} tasks
+            <p className="text-sm text-gray-600 flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+              {isConnected ? 'Backend connected' : 'Backend disconnected'}
             </p>
           </div>
           
           <div className="flex items-center gap-2">
+            <div className="text-xs text-gray-500">
+              Temp: {temperature}
+            </div>
             <Button variant="ghost" size="sm" onClick={clearChat}>
               <RotateCcw className="w-4 h-4" />
               Clear
@@ -135,7 +199,12 @@ const ChatInterface = ({ selectedTool, isToolSidebarOpen, isSettingsOpen }: Chat
                 Start a conversation
               </h3>
               <p className="text-gray-600 max-w-md mx-auto">
-                Use the {getToolTitle()} to help with your task. Type a message below to get started.
+                Use the {getToolTitle()} with your local Ollama model. 
+                {!isConnected && (
+                  <span className="block mt-2 text-red-600 font-medium">
+                    ⚠️ Backend not connected - start your FastAPI server first
+                  </span>
+                )}
               </p>
             </div>
           ) : (
@@ -147,7 +216,7 @@ const ChatInterface = ({ selectedTool, isToolSidebarOpen, isSettingsOpen }: Chat
           {isLoading && (
             <div className="flex items-center gap-3 text-gray-600">
               <Loader2 className="w-4 h-4 animate-spin" />
-              <span className="text-sm">AI is thinking...</span>
+              <span className="text-sm">Ollama is generating response...</span>
             </div>
           )}
         </div>
@@ -165,7 +234,7 @@ const ChatInterface = ({ selectedTool, isToolSidebarOpen, isSettingsOpen }: Chat
                 onKeyDown={handleKeyPress}
                 placeholder={getPlaceholder()}
                 className="min-h-[60px] max-h-32 resize-none pr-12 focus:ring-2 focus:ring-purple-500"
-                disabled={isLoading}
+                disabled={isLoading || !isConnected}
               />
               <div className="absolute bottom-2 right-2 text-xs text-gray-400">
                 {input.length}/2000
@@ -174,7 +243,7 @@ const ChatInterface = ({ selectedTool, isToolSidebarOpen, isSettingsOpen }: Chat
             
             <Button
               onClick={handleSend}
-              disabled={!input.trim() || isLoading}
+              disabled={!input.trim() || isLoading || !isConnected}
               size="lg"
               className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
             >
@@ -188,7 +257,7 @@ const ChatInterface = ({ selectedTool, isToolSidebarOpen, isSettingsOpen }: Chat
           
           <div className="flex items-center justify-between mt-2 text-xs text-gray-500">
             <span>Press Ctrl+Enter to send</span>
-            <span>Local AI Model Ready</span>
+            <span>{isConnected ? 'Ollama Ready' : 'Backend Disconnected'}</span>
           </div>
         </div>
       </div>

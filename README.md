@@ -75,7 +75,7 @@ If you’re using Lovable’s prebuilt UI:
 2. Edit the config (like `.env`, or config.js) and ensure it points to:
 
 ```
-http://localhost:8000
+http://localhost:8080
 ```
 
 3. Run the frontend (if needed):
@@ -93,7 +93,7 @@ Or simply open the `index.html` if it’s static.
 Visit:
 
 ```
-http://localhost:8000/docs
+http://localhost:8080/docs
 ```
 
 You should see FastAPI Swagger UI.
@@ -129,12 +129,9 @@ You can add Python logging to write outputs to a file from backend.
 ## 🛠 Troubleshooting
 
 - ❌ "Backend not connected" — make sure:
-  - Backend is running on `localhost:8000`
+  - Backend is running on `localhost:8080`
   - Frontend is configured to use that port
   - You are not using `127.0.0.1` in frontend when accessing from a different device
 
 ---
-
-## 📄 License
-
-MIT License — modify and use freely!
+run at local host :http://localhost:8080/
